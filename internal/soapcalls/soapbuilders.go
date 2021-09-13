@@ -192,6 +192,29 @@ type GetMuteAction struct {
 	Channel          string
 }
 
+// SeekEnvelope .
+type SeekEnvelope struct {
+	XMLName  xml.Name `xml:"s:Envelope"`
+	Schema   string   `xml:"xmlns:s,attr"`
+	Encoding string   `xml:"s:encodingStyle,attr"`
+	SeekBody SeekBody `xml:"s:Body"`
+}
+
+// SeekBody .
+type SeekBody struct {
+	XMLName    xml.Name   `xml:"s:Body"`
+	SeekAction SeekAction `xml:"u:Seek"`
+}
+
+// SeekAction .
+type SeekAction struct {
+	XMLName     xml.Name `xml:"u:Seek"`
+	AVTransport string   `xml:"xmlns:u,attr"`
+	InstanceID  string
+	Unit        string
+	Target      string
+}
+
 func setAVTransportSoapBuild(videoURL, subtitleURL string) ([]byte, error) {
 	var videoTitle string
 
@@ -387,6 +410,38 @@ func getMuteSoapBuild() ([]byte, error) {
 	b, err := xml.Marshal(d)
 	if err != nil {
 		return nil, fmt.Errorf("getMuteSoapBuild Marshal error: %w", err)
+	}
+
+	return append(xmlStart, b...), nil
+}
+
+func seekSoapBuild(forward bool) ([]byte, error) {
+	// Seek(“TRACK_NR”,”1”) is equivalent to the common “FastReverse” VCR functionality.
+	// Special track number ‘0’ is used to indicate the end of the media, hence,
+	// Seek(“TRACK_NR”,”0”) is equivalent to the common “FastForward” VCR functionality.
+	target := "1"
+	if forward {
+		target = "0"
+	}
+	d := SeekEnvelope{
+		XMLName:  xml.Name{},
+		Schema:   "http://schemas.xmlsoap.org/soap/envelope/",
+		Encoding: "http://schemas.xmlsoap.org/soap/encoding/",
+		SeekBody: SeekBody{
+			XMLName: xml.Name{},
+			SeekAction: SeekAction{
+				XMLName:     xml.Name{},
+				AVTransport: "urn:schemas-upnp-org:service:AVTransport:1",
+				InstanceID:  "0",
+				Unit:        "TRACK_NR",
+				Target:      target,
+			},
+		},
+	}
+	xmlStart := []byte("<?xml version='1.0' encoding='utf-8'?>")
+	b, err := xml.Marshal(d)
+	if err != nil {
+		return nil, fmt.Errorf("playSoapBuild Marshal error: %w", err)
 	}
 
 	return append(xmlStart, b...), nil

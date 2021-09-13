@@ -34,6 +34,8 @@ type NewScreen struct {
 	Stop                *widget.Button
 	Mute                *widget.Button
 	Unmute              *widget.Button
+	Reverse             *widget.Button
+	Forward             *widget.Button
 	CustomSubsCheck     *widget.Check
 	VideoText           *widget.Entry
 	SubsText            *widget.Entry
@@ -80,8 +82,7 @@ func (d *mainButtonsLayout) Layout(objects []fyne.CanvasObject, containerSize fy
 
 	bigButtonSize := containerSize.Width
 	for q, o := range objects {
-		z := q + 1
-		if z%2 == 0 {
+		if q != 0 && q != len(objects)-1 {
 			bigButtonSize = bigButtonSize - o.MinSize().Width
 		}
 	}
@@ -89,8 +90,8 @@ func (d *mainButtonsLayout) Layout(objects []fyne.CanvasObject, containerSize fy
 
 	for q, o := range objects {
 		var size fyne.Size
-		switch q % 2 {
-		case 0:
+		switch {
+		case q == 0 || q == len(objects)-1:
 			size = fyne.NewSize(bigButtonSize, o.MinSize().Height)
 		default:
 			size = o.MinSize()
@@ -106,7 +107,7 @@ func (d *mainButtonsLayout) Layout(objects []fyne.CanvasObject, containerSize fy
 func Start(s *NewScreen) {
 	w := s.Current
 	refreshDevices := time.NewTicker(10 * time.Second)
-	checkMute := time.NewTicker(1 * time.Second)
+	checkMute := time.NewTicker(100 * time.Second)
 
 	list := new(widget.List)
 
@@ -152,6 +153,12 @@ func Start(s *NewScreen) {
 	unmute := widget.NewButtonWithIcon("", theme.VolumeUpIcon(), func() {
 		go unmuteAction(s)
 	})
+	reverse := widget.NewButtonWithIcon("", theme.MediaFastRewindIcon(), func() {
+		go reverseAction(s)
+	})
+	forward := widget.NewButtonWithIcon("", theme.MediaFastForwardIcon(), func() {
+		go forwardAction(s)
+	})
 
 	sfilecheck := widget.NewCheck("Custom Subtitles", func(b bool) {})
 	videoloop := widget.NewCheck("Loop Selected Video", func(b bool) {})
@@ -183,17 +190,19 @@ func Start(s *NewScreen) {
 	s.VideoText = vfiletext
 	s.SubsText = sfiletext
 	s.DeviceList = list
+	s.Reverse = reverse
+	s.Forward = forward
 
 	// Organising widgets in the window
 	playpause := container.New(layout.NewMaxLayout(), play, pause)
 	muteunmute := container.New(layout.NewMaxLayout(), mute, unmute)
-	playpausemutestop := container.New(&mainButtonsLayout{}, playpause, muteunmute, stop)
+	actionbuttons := container.New(&mainButtonsLayout{}, playpause, reverse, muteunmute, forward, stop)
 
 	checklists := container.NewHBox(sfilecheck, videoloop, nextvideo)
 	videosubsbuttons := container.New(layout.NewGridLayout(2), vfile, sfile)
 	viewfilescont := container.New(layout.NewFormLayout(), videofilelabel, vfiletext, subsfilelabel, sfiletext)
 
-	buttons := container.NewVBox(videosubsbuttons, viewfilescont, checklists, playpausemutestop, devicelabel)
+	buttons := container.NewVBox(videosubsbuttons, viewfilescont, checklists, actionbuttons, devicelabel)
 	content := container.New(layout.NewBorderLayout(buttons, nil, nil, nil), buttons, list)
 
 	// Widgets actions
@@ -242,7 +251,16 @@ func Start(s *NewScreen) {
 	}()
 
 	go func() {
+		var checkMuteCounter int
 		for range checkMute.C {
+
+			// Stop trying after 5 failures
+			// to get the mute status
+			if checkMuteCounter == 5 {
+				s.renderingControlURL = ""
+				checkMuteCounter = 0
+			}
+
 			if s.renderingControlURL == "" {
 				continue
 			}
@@ -253,9 +271,12 @@ func Start(s *NewScreen) {
 
 			isMuted, err := s.tvdata.GetMuteSoapCall()
 			if err != nil {
+				checkMuteCounter++
 				fmt.Println(err)
 				continue
 			}
+
+			checkMuteCounter = 0
 
 			switch isMuted {
 			case "1":
@@ -504,6 +525,28 @@ func stopAction(screen *NewScreen) {
 	// to be a race condition that prevents this.
 	screen.EmitMsg("Stopped")
 
+}
+
+func forwardAction(screen *NewScreen) {
+	w := screen.Current
+
+	if screen.tvdata == nil || screen.tvdata.ControlURL == "" {
+		return
+	}
+
+	err := screen.tvdata.SendtoTV("Forward")
+	check(w, err)
+}
+
+func reverseAction(screen *NewScreen) {
+	w := screen.Current
+
+	if screen.tvdata == nil || screen.tvdata.ControlURL == "" {
+		return
+	}
+
+	err := screen.tvdata.SendtoTV("Reverse")
+	check(w, err)
 }
 
 func getDevices(delay int) (dev []devType, err error) {
